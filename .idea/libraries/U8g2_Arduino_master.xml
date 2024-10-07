@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="U8g2_Arduino-master">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/esp32-eyes-playfultechnology/data/U8g2_Arduino-master.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
