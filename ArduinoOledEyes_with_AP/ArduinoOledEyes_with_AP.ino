@@ -189,13 +189,14 @@ void move_right_big_eye()
 {
   move_big_eye(1);
 }
+
 void move_left_big_eye()
 {
   move_big_eye(-1);
 }
+
 void move_big_eye(int direction)
 {
-
   int direction_oversize = 1;
   int direction_movement_amplitude = 2;
   int blink_amplitude = 5;
@@ -283,9 +284,86 @@ void move_big_eye(int direction)
 
 }
 
+void softAPConfig() {
+  Serial.println("Setting soft-AP configuration ... ");
+  WiFi.disconnect(); // ngắt kết nối wifi
+  WiFi.mode(WIFI_AP_STA); // thiết lập ESP32 hoạt động ở chế độ AP và STA
+
+  Serial.println("Setting soft-AP ... ");
+  boolean result = WiFi.softAP(ssid_AP, password_AP); // tạo điểm truy cập wifi mới
+
+  if (result) {
+    Serial.println("Ready");
+    Serial.println(String("Soft-AP IP address = ") + WiFi.softAPIP().toString());
+    Serial.println(String("MAC address = ") + WiFi.softAPmacAddress().c_str());
+  } else {
+    Serial.println("Failed!");
+  }
+}
+
+void connectWifiConfig() {
+  Serial.println("\nSetting Station configuration ... ");
+  WiFi.begin(ssid_Router, password_Router); // Kết nối với router wifi
+  Serial.println(String("Connecting to ") + ssid_Router);
+  
+  unsigned long startAttemptTime = millis();
+  const unsigned long wifiTimeout = 10000; 
+  
+  // kiểm tra kết nối wifi
+  while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < wifiTimeout) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected, IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nFailed to connect to Wi-Fi");
+  }
+}
+
+void setupMQTT() {
+  client.setServer(mqtt_broker, mqtt_port);
+  client.setCallback(callback);
+}
+
+void reconnectMQTT() {
+  // Kiểm tra xem nó kết nối được chưa, nếu chưa thì thử lại sau mỗi 5 giây
+  while (!client.connected()) {
+    Serial.println("Attempting MQTT connection...");
+    if (client.connect("ESP32Client", mqtt_username, mqtt_password)) {
+      Serial.println("Connected to MQTT broker");
+      client.subscribe(topic);
+    } else {
+      Serial.print("Failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" trying again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+  // Hàm này in ra tin nhắn nhận được
+  Serial.print("Message arrived in topic: ");
+  Serial.println(topic);
+  Serial.print("Message: ");
+  for (int i = 0; i < length; i++) {
+    Serial.print((char) payload[i]);
+  }
+  Serial.println();
+  Serial.println("-----------------------");
+}
+
 void setup() {
   display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS);
   Serial.begin(115200);
+
+  softAPConfig(); 
+  connectWifiConfig(); 
+  //setupMQTT();
+
   display.clearDisplay();
   display.setTextSize(1);            
   display.setTextColor(SSD1306_WHITE);       
@@ -297,6 +375,11 @@ void setup() {
 }
 
 void loop() {
+  // if (!client.connected()) {
+  //   reconnectMQTT();
+  // }
+  // client.loop();
+
   int anim = random(0, 9); 
   switch(anim) {
     case 0:

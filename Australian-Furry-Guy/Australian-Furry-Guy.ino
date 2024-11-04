@@ -1,55 +1,37 @@
-// Lý thuyết:
-// MQTT (Message Queueing Telemetry Transport) là một giao thức mạng kích thước nhỏ (lightweight), 
-// hoạt động theo cơ chế publish – subscribe (tạm dịch: xuất bản – đăng ký) theo tiêu chuẩn ISO (ISO/IEC 20922) 
-// và OASIS mở để truyền tin nhắn giữa các thiết bị.
-
-// MQTT Broker hay máy chủ mô giới được coi như trung tâm, nó là điểm giao của tất cả các kết nối 
-// đến từ Client (Publisher/Subscriber).
-
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <HTTPClient.h>
+#include <ArduinoJson.h>
 
-// Đây là đoạn code dùng để truy cập wifi
-const char *ssid_Router = "Happy House Tang 2"; // Nhập tên Wi-Fi
-const char *password_Router = "2345678@";       // Nhập mật khẩu Wi-Fi
+const char *ssid_Router = "Happy House Tang 2";
+const char *password_Router = "2345678@";
 
-// Đây là đoạn code dùng để tạo mạng wifi riêng
-const char *ssid_AP = "Hộp đêm gay";           // Nhập tên AP
-const char *password_AP = "12345678";          // Nhập mật khẩu AP
+const char *ssid_AP = "HỘP ĐÊM GAY 3000";
+const char *password_AP = "12345678";
 
-// config MQTT
-const char *mqtt_broker = "broker.emqx.io"; // Đây là đại chỉ của MQTT broker
-const char *topic = "esp32/test"; // đây là topic để ESP thấy và gửi dữ liệu qua MQTT
-const char *mqtt_username = "demo"; // đây là tên người dùng xác thực cho giao thức MQTT
-const char *mqtt_password = "demo"; // đây là mật khẩu dùng xác thực cho giao thức MQTT
-const int mqtt_port = 1883; // cổng kết nối tới MQTT
+const char *mqtt_broker = "broker.emqx.io";
+const char *topic = "esp32/test";
+const char *mqtt_username = "demo";
+const char *mqtt_password = "demo";
+const int mqtt_port = 1883;
 
-WiFiClient espClient; // tạo ra đối tượng cho phép esp32 giao tiếp với mạng wifi
-PubSubClient client(espClient); // tạo một đối tượng PubSubClient sử dụng espClient để kết nối tới MQTT broker
+const char* apiKey = "";
+String apiUrl = "https://api.openai.com/v1/chat/completions";
+String finalPayload = "";
 
-void setup() {
-  Serial.begin(115200); // khởi tạo giao tiếp Serial với tốc độ truyền là 115200 bps
-  softAPConfig(); // thiết lập chế độ AP cho ESP32
-  connectWifiConfig(); // kết nối ESP32 với Wi-Fi qua router
-  setupMQTT(); // thiết lập kết nối với MQTT broker
-}
+bool initialPrompt = true;
+bool gettingResponse = true;
 
-void loop() {
-  //  kiểm tra kết nối với MQTT broker 
-  // nếu không kết nối được, hàm reconnectMQTT() sẽ được gọi
-  if (!client.connected()) {
-    reconnectMQTT();
-  }
-  client.loop(); // xử lý các sự kiện liên quan đến MQTT
-}
+WiFiClient espClient;
+PubSubClient client(espClient);
+HTTPClient http;
 
 void softAPConfig() {
   Serial.println("Setting soft-AP configuration ... ");
-  WiFi.disconnect(); // ngắt kết nối wifi
-  WiFi.mode(WIFI_AP_STA); // thiết lập ESP32 hoạt động ở chế độ AP và STA
-
+  WiFi.disconnect();
+  WiFi.mode(WIFI_AP_STA);
   Serial.println("Setting soft-AP ... ");
-  boolean result = WiFi.softAP(ssid_AP, password_AP); // tạo điểm truy cập wifi mới
+  bool result = WiFi.softAP(ssid_AP, password_AP);
 
   if (result) {
     Serial.println("Ready");
@@ -62,13 +44,12 @@ void softAPConfig() {
 
 void connectWifiConfig() {
   Serial.println("\nSetting Station configuration ... ");
-  WiFi.begin(ssid_Router, password_Router); // Kết nối với router wifi
+  WiFi.begin(ssid_Router, password_Router);
   Serial.println(String("Connecting to ") + ssid_Router);
-  
+
   unsigned long startAttemptTime = millis();
-  const unsigned long wifiTimeout = 10000; 
-  
-  // kiểm tra kết nối wifi
+  const unsigned long wifiTimeout = 10000;
+
   while (WiFi.status() != WL_CONNECTED && millis() - startAttemptTime < wifiTimeout) {
     delay(500);
     Serial.print(".");
@@ -80,6 +61,7 @@ void connectWifiConfig() {
   } else {
     Serial.println("\nFailed to connect to Wi-Fi");
   }
+  http.begin(apiUrl);
 }
 
 void setupMQTT() {
@@ -88,7 +70,6 @@ void setupMQTT() {
 }
 
 void reconnectMQTT() {
-  // Kiểm tra xem nó kết nối được chưa, nếu chưa thì thử lại sau mỗi 5 giây
   while (!client.connected()) {
     Serial.println("Attempting MQTT connection...");
     if (client.connect("ESP32Client", mqtt_username, mqtt_password)) {
@@ -104,13 +85,69 @@ void reconnectMQTT() {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  // Hàm này in ra tin nhắn nhận được
+  String message = "";
   Serial.print("Message arrived in topic: ");
   Serial.println(topic);
   Serial.print("Message: ");
   for (int i = 0; i < length; i++) {
-    Serial.print((char) payload[i]);
+    message += (char) payload[i];
   }
-  Serial.println();
+  Serial.println(message);
   Serial.println("-----------------------");
+  
+  chatGptCall(message);
+}
+
+void chatGptCall(String payload) {
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + String(apiKey));
+
+  if (initialPrompt) {
+    finalPayload = "{\"model\": \"gpt-3.5-turbo\",\"messages\": [{\"role\": \"user\", \"content\": \"" + payload + "\"}]}";
+    initialPrompt = false;
+  } else {
+    finalPayload = finalPayload + ",{\"role\": \"user\", \"content\": \"" + payload + "\"}]}";
+  }
+
+  int httpResponseCode = http.POST(finalPayload);
+  
+  if (httpResponseCode == 200) {
+    String response = http.getString();
+
+    DynamicJsonDocument jsonDoc(2048);  // Increase buffer size if needed
+    deserializeJson(jsonDoc, response);
+    String outputText = jsonDoc["choices"][0]["message"]["content"];
+    outputText.trim();
+    Serial.print("CHATGPT: ");
+    Serial.println(outputText);
+    String returnResponse = "{\"role\": \"assistant\", \"content\": \"" + outputText + "\"}";
+
+    finalPayload = removeEndOfString(finalPayload);
+    finalPayload = finalPayload + "," + returnResponse;
+    gettingResponse = false;
+
+    client.publish(topic, outputText.c_str());
+  } else {
+    Serial.printf("Error %i\n", httpResponseCode);
+  }
+}
+
+String removeEndOfString(String originalString) {
+  int stringLength = originalString.length();
+  String newString = originalString.substring(0, stringLength - 2);
+  return newString;
+}
+
+void setup() {
+  Serial.begin(115200);
+  softAPConfig();
+  connectWifiConfig();
+  setupMQTT();
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnectMQTT();
+  }
+  client.loop();
 }
